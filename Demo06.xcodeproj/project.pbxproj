@@ -408,6 +408,8 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = HeartWatch;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "la app necesita leer";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "la app necesita acceeder";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "demo.Demo06-App";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -439,6 +441,8 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = HeartWatch;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "la app necesita leer";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "la app necesita acceeder";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "demo.Demo06-App";
 				LD_RUNPATH_SEARCH_PATHS = (
