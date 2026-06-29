@@ -6,8 +6,37 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		E57B41342FF32B6C0023364F /* HeartWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = E57B41272FF32B6A0023364F /* HeartWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		E57B41322FF32B6C0023364F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E57B41082FF329800023364F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E57B41262FF32B6A0023364F;
+			remoteInfo = "HeartWatch Watch App";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		E57B41382FF32B6C0023364F /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				E57B41342FF32B6C0023364F /* HeartWatch Watch App.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		E57B41102FF329800023364F /* Demo06.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Demo06.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E57B41272FF32B6A0023364F /* HeartWatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "HeartWatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -16,10 +45,22 @@
 			path = Demo06;
 			sourceTree = "<group>";
 		};
+		E57B41282FF32B6A0023364F /* HeartWatch Watch App */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "HeartWatch Watch App";
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		E57B410D2FF329800023364F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E57B41242FF32B6A0023364F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +74,7 @@
 			isa = PBXGroup;
 			children = (
 				E57B41122FF329800023364F /* Demo06 */,
+				E57B41282FF32B6A0023364F /* HeartWatch Watch App */,
 				E57B41112FF329800023364F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +83,7 @@
 			isa = PBXGroup;
 			children = (
 				E57B41102FF329800023364F /* Demo06.app */,
+				E57B41272FF32B6A0023364F /* HeartWatch Watch App.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -55,10 +98,12 @@
 				E57B410C2FF329800023364F /* Sources */,
 				E57B410D2FF329800023364F /* Frameworks */,
 				E57B410E2FF329800023364F /* Resources */,
+				E57B41382FF32B6C0023364F /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				E57B41332FF32B6C0023364F /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				E57B41122FF329800023364F /* Demo06 */,
@@ -68,6 +113,28 @@
 			);
 			productName = Demo06;
 			productReference = E57B41102FF329800023364F /* Demo06.app */;
+			productType = "com.apple.product-type.application";
+		};
+		E57B41262FF32B6A0023364F /* HeartWatch Watch App */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E57B41352FF32B6C0023364F /* Build configuration list for PBXNativeTarget "HeartWatch Watch App" */;
+			buildPhases = (
+				E57B41232FF32B6A0023364F /* Sources */,
+				E57B41242FF32B6A0023364F /* Frameworks */,
+				E57B41252FF32B6A0023364F /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				E57B41282FF32B6A0023364F /* HeartWatch Watch App */,
+			);
+			name = "HeartWatch Watch App";
+			packageProductDependencies = (
+			);
+			productName = "HeartWatch Watch App";
+			productReference = E57B41272FF32B6A0023364F /* HeartWatch Watch App.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -81,6 +148,9 @@
 				LastUpgradeCheck = 1620;
 				TargetAttributes = {
 					E57B410F2FF329800023364F = {
+						CreatedOnToolsVersion = 16.2;
+					};
+					E57B41262FF32B6A0023364F = {
 						CreatedOnToolsVersion = 16.2;
 					};
 				};
@@ -100,12 +170,20 @@
 			projectRoot = "";
 			targets = (
 				E57B410F2FF329800023364F /* Demo06 */,
+				E57B41262FF32B6A0023364F /* HeartWatch Watch App */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		E57B410E2FF329800023364F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E57B41252FF32B6A0023364F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +200,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E57B41232FF32B6A0023364F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		E57B41332FF32B6C0023364F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E57B41262FF32B6A0023364F /* HeartWatch Watch App */;
+			targetProxy = E57B41322FF32B6C0023364F /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		E57B411E2FF329820023364F /* Debug */ = {
@@ -302,6 +395,68 @@
 			};
 			name = Release;
 		};
+		E57B41362FF32B6C0023364F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "HeartWatch Watch App/HeartWatch Watch App.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"HeartWatch Watch App/Preview Content\"";
+				DEVELOPMENT_TEAM = 38Q2T9T9JL;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = HeartWatch;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "demo.Demo06-App";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "demo.Demo06-App.watchkitapp";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 8.7;
+			};
+			name = Debug;
+		};
+		E57B41372FF32B6C0023364F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "HeartWatch Watch App/HeartWatch Watch App.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"HeartWatch Watch App/Preview Content\"";
+				DEVELOPMENT_TEAM = 38Q2T9T9JL;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = HeartWatch;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "demo.Demo06-App";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "demo.Demo06-App.watchkitapp";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 8.7;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -319,6 +474,15 @@
 			buildConfigurations = (
 				E57B41212FF329820023364F /* Debug */,
 				E57B41222FF329820023364F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E57B41352FF32B6C0023364F /* Build configuration list for PBXNativeTarget "HeartWatch Watch App" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E57B41362FF32B6C0023364F /* Debug */,
+				E57B41372FF32B6C0023364F /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
