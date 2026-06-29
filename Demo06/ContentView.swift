@@ -1,61 +1,64 @@
-//
-//  ContentView.swift
-//  Demo06
-//
-//  Created by Daniel Eduardo Palomino Pacahuala on 29/06/26.
-//
-
 import SwiftUI
-import SwiftData
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+    @EnvironmentObject private var heartRate: PhoneHeartRateManager
 
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
+        NavigationStack {
+            VStack(spacing: 28) {
+                Image(systemName: "heart.fill")
+                    .font(.system(size: 64))
+                    .foregroundStyle(.red)
+
+                VStack(spacing: 4) {
+                    Text(heartRate.currentBPM.map { String(Int($0.rounded())) } ?? "--")
+                        .font(.system(size: 72, weight: .bold, design: .rounded))
+                        .contentTransition(.numericText())
+                    Text("BPM")
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
                 }
-                .onDelete(perform: deleteItems)
+
+                VStack(spacing: 12) {
+                    StatusRow(title: "Apple Watch", value: heartRate.connectionText,
+                              color: heartRate.isReachable ? .green : .orange)
+                    StatusRow(title: "Captura", value: heartRate.isCapturing ? "Activa" : "Detenida",
+                              color: heartRate.isCapturing ? .green : .secondary)
+                    StatusRow(title: "Lecturas guardadas", value: "\(heartRate.readings.count)", color: .blue)
+                }
+
+                Button {
+                    heartRate.setCapture(active: !heartRate.isCapturing)
+                } label: {
+                    Label(heartRate.isCapturing ? "Detener captura" : "Iniciar captura",
+                          systemImage: heartRate.isCapturing ? "stop.fill" : "play.fill")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(heartRate.isCapturing ? .red : .green)
             }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
-            }
-        } detail: {
-            Text("Select an item")
+            .padding(24)
+            .navigationTitle("Frecuencia cardiaca")
         }
     }
+}
 
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
+private struct StatusRow: View {
+    let title: String
+    let value: String
+    let color: Color
 
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
-            }
+    var body: some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Circle().fill(color).frame(width: 9, height: 9)
+            Text(value).foregroundStyle(.secondary)
         }
     }
 }
 
 #Preview {
-    ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
+    ContentView().environmentObject(PhoneHeartRateManager())
 }

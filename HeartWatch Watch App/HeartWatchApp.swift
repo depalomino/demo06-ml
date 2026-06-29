@@ -1,17 +1,12 @@
-//
-//  HeartWatchApp.swift
-//  HeartWatch Watch App
-//
-//  Created by Daniel Eduardo Palomino Pacahuala on 29/06/26.
-//
-
 import SwiftUI
 
 @main
 struct HeartWatch_Watch_AppApp: App {
+    @StateObject private var heartRate = WatchHeartRateManager()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView().environmentObject(heartRate)
         }
     }
 }
