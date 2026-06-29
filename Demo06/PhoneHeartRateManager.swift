@@ -31,6 +31,8 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
         return isReachable ? "Conectado" : "Sin conexión directa"
     }
 
+    var exportFileURL: URL { fileURL }
+
     private let session: WCSession? = WCSession.isSupported() ? .default : nil
     private let fileURL: URL
     private var knownIDs = Set<UUID>()
@@ -40,13 +42,25 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
             .appendingPathComponent("heart-rate-readings.json")
         super.init()
         loadReadings()
+        saveReadings()
         session?.delegate = self
         session?.activate()
     }
 
     func setCapture(active: Bool) {
         isCapturing = active
-        let command: [String: Any] = ["command": active ? "start" : "stop"]
+        send(command: active ? "start" : "stop")
+    }
+
+    func clearReadings() {
+        readings.removeAll()
+        currentBPM = nil
+        saveReadings()
+        send(command: "clear")
+    }
+
+    private func send(command commandName: String) {
+        let command: [String: Any] = ["command": commandName]
         try? session?.updateApplicationContext(command)
         if session?.isReachable == true {
             session?.sendMessage(command, replyHandler: nil) { error in

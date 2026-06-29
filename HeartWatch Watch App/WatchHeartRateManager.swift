@@ -30,6 +30,8 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
     private var workoutBuilder: HKLiveWorkoutBuilder?
     private var readings: [WatchHeartRateReading] = []
     private var knownIDs = Set<UUID>()
+    private var lastRecordedAt: Date?
+    private let recordingInterval: TimeInterval = 3
     private let fileURL: URL
 
     override init() {
@@ -75,6 +77,7 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
             builder.delegate = self
             self.workoutSession = workoutSession
             self.workoutBuilder = builder
+            lastRecordedAt = nil
             errorMessage = nil
             workoutSession.startActivity(with: Date())
             builder.beginCollection(withStart: Date()) { [weak self] success, error in
@@ -100,6 +103,8 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
 
     private func record(bpm: Double, date: Date) {
         guard bpm > 0 else { return }
+        if let lastRecordedAt, date.timeIntervalSince(lastRecordedAt) < recordingInterval { return }
+        lastRecordedAt = date
         let reading = WatchHeartRateReading(bpm: bpm, date: date)
         guard knownIDs.insert(reading.id).inserted else { return }
         readings.append(reading)
@@ -116,7 +121,18 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
 
     private func handle(_ dictionary: [String: Any]) {
         guard let command = dictionary["command"] as? String else { return }
-        command == "start" ? startCapture() : stopCapture()
+        switch command {
+        case "start": startCapture()
+        case "stop": stopCapture()
+        case "clear": clearReadings()
+        default: break
+        }
+    }
+
+    private func clearReadings() {
+        readings.removeAll()
+        currentBPM = nil
+        saveReadings()
     }
 
     private func publishState() {

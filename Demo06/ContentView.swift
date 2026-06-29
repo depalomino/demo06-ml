@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var heartRate: PhoneHeartRateManager
+    @State private var showsDeleteConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -37,9 +38,38 @@ struct ContentView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(heartRate.isCapturing ? .red : .green)
+
+                HStack(spacing: 12) {
+                    ShareLink(item: heartRate.exportFileURL) {
+                        Label("Exportar", systemImage: "square.and.arrow.up")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button(role: .destructive) {
+                        showsDeleteConfirmation = true
+                    } label: {
+                        Label("Borrar", systemImage: "trash")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(heartRate.readings.isEmpty)
+                }
             }
             .padding(24)
             .navigationTitle("Frecuencia cardiaca")
+            .confirmationDialog(
+                "¿Borrar todas las lecturas?",
+                isPresented: $showsDeleteConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Borrar definitivamente", role: .destructive) {
+                    heartRate.clearReadings()
+                }
+                Button("Cancelar", role: .cancel) {}
+            } message: {
+                Text("Se borrarán las copias guardadas en el iPhone y el Apple Watch.")
+            }
         }
     }
 }
