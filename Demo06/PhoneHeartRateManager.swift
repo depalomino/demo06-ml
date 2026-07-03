@@ -1,4 +1,5 @@
 import Foundation
+import CoreMotion
 import WatchConnectivity
 
 struct HeartRateReading: Codable, Identifiable, Hashable {
@@ -19,12 +20,50 @@ struct HeartRateReading: Codable, Identifiable, Hashable {
     }()
 }
 
+struct MotionReading: Codable, Identifiable, Hashable {
+    let id: UUID
+    let timestamp: String
+    let accelerationX: Double
+    let accelerationY: Double
+    let accelerationZ: Double
+    let rotationX: Double
+    let rotationY: Double
+    let rotationZ: Double
+
+    init(motion: CMDeviceMotion, date: Date = Date()) {
+        id = UUID()
+        timestamp = ISO8601DateFormatter.readingFormatter.string(from: date)
+        accelerationX = motion.userAcceleration.x + motion.gravity.x
+        accelerationY = motion.userAcceleration.y + motion.gravity.y
+        accelerationZ = motion.userAcceleration.z + motion.gravity.z
+        rotationX = motion.rotationRate.x
+        rotationY = motion.rotationRate.y
+        rotationZ = motion.rotationRate.z
+    }
+}
+
+private struct StoredReadings: Codable {
+    var heartRate: [HeartRateReading]
+    var motion: [MotionReading]
+}
+
+private extension ISO8601DateFormatter {
+    static let readingFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+}
+
 @MainActor
 final class PhoneHeartRateManager: NSObject, ObservableObject {
     @Published private(set) var readings: [HeartRateReading] = []
+    @Published private(set) var motionReadings: [MotionReading] = []
     @Published private(set) var currentBPM: Double?
+    @Published private(set) var currentMotion: MotionReading?
     @Published private(set) var isCapturing = false
     @Published private(set) var isReachable = false
+    @Published private(set) var motionError: String?
 
     var connectionText: String {
         guard WCSession.isSupported() else { return "No compatible" }
@@ -34,6 +73,7 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
     var exportFileURL: URL { fileURL }
 
     private let session: WCSession? = WCSession.isSupported() ? .default : nil
+    private let motionManager = CMMotionManager()
     private let fileURL: URL
     private var knownIDs = Set<UUID>()
 
@@ -49,14 +89,45 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
 
     func setCapture(active: Bool) {
         isCapturing = active
+        active ? startMotionCapture() : stopMotionCapture()
         send(command: active ? "start" : "stop")
     }
 
     func clearReadings() {
         readings.removeAll()
+        motionReadings.removeAll()
         currentBPM = nil
+        currentMotion = nil
         saveReadings()
         send(command: "clear")
+    }
+
+    private func startMotionCapture() {
+        guard motionManager.isDeviceMotionAvailable else {
+            motionError = "Acelerómetro o giroscopio no disponible"
+            return
+        }
+        guard !motionManager.isDeviceMotionActive else { return }
+        motionError = nil
+        motionManager.deviceMotionUpdateInterval = 1
+        motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, error in
+            Task { @MainActor in
+                guard let self else { return }
+                if let error {
+                    self.motionError = error.localizedDescription
+                    return
+                }
+                guard self.isCapturing, let motion else { return }
+                let reading = MotionReading(motion: motion)
+                self.currentMotion = reading
+                self.motionReadings.append(reading)
+                self.saveReadings()
+            }
+        }
+    }
+
+    private func stopMotionCapture() {
+        motionManager.stopDeviceMotionUpdates()
     }
 
     private func send(command commandName: String) {
@@ -86,15 +157,23 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
     }
 
     private func loadReadings() {
-        guard let data = try? Data(contentsOf: fileURL),
-              let stored = try? JSONDecoder().decode([HeartRateReading].self, from: data) else { return }
-        readings = stored
-        knownIDs = Set(stored.map(\.id))
-        currentBPM = stored.last?.bpm
+        guard let data = try? Data(contentsOf: fileURL) else { return }
+        if let stored = try? JSONDecoder().decode(StoredReadings.self, from: data) {
+            readings = stored.heartRate
+            motionReadings = stored.motion
+        } else if let legacyReadings = try? JSONDecoder().decode([HeartRateReading].self, from: data) {
+            readings = legacyReadings
+        }
+        knownIDs = Set(readings.map(\.id))
+        currentBPM = readings.last?.bpm
+        currentMotion = motionReadings.last
     }
 
     private func saveReadings() {
-        guard let data = try? JSONEncoder().encode(readings) else { return }
+        let stored = StoredReadings(heartRate: readings, motion: motionReadings)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(stored) else { return }
         try? data.write(to: fileURL, options: .atomic)
     }
 }
@@ -131,6 +210,8 @@ extension PhoneHeartRateManager: WCSessionDelegate {
     nonisolated func sessionDidDeactivate(_ session: WCSession) { session.activate() }
 
     private func applyWatchState(_ dictionary: [String: Any]) {
-        if let active = dictionary["capturing"] as? Bool { isCapturing = active }
+        guard let active = dictionary["capturing"] as? Bool else { return }
+        isCapturing = active
+        active ? startMotionCapture() : stopMotionCapture()
     }
 }

@@ -6,7 +6,8 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 28) {
+            ScrollView {
+                VStack(spacing: 22) {
                 Image(systemName: "heart.fill")
                     .font(.system(size: 64))
                     .foregroundStyle(.red)
@@ -26,6 +27,19 @@ struct ContentView: View {
                     StatusRow(title: "Captura", value: heartRate.isCapturing ? "Activa" : "Detenida",
                               color: heartRate.isCapturing ? .green : .secondary)
                     StatusRow(title: "Lecturas guardadas", value: "\(heartRate.readings.count)", color: .blue)
+                    StatusRow(title: "Muestras de movimiento", value: "\(heartRate.motionReadings.count)", color: .blue)
+                }
+
+                MotionCard(title: "Acelerómetro", unit: "g", values: heartRate.currentMotion.map {
+                    ($0.accelerationX, $0.accelerationY, $0.accelerationZ)
+                })
+
+                MotionCard(title: "Giroscopio", unit: "rad/s", values: heartRate.currentMotion.map {
+                    ($0.rotationX, $0.rotationY, $0.rotationZ)
+                })
+
+                if let error = heartRate.motionError {
+                    Text(error).font(.caption).foregroundStyle(.red).multilineTextAlignment(.center)
                 }
 
                 Button {
@@ -53,10 +67,11 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
-                    .disabled(heartRate.readings.isEmpty)
+                    .disabled(heartRate.readings.isEmpty && heartRate.motionReadings.isEmpty)
                 }
+                }
+                .padding(24)
             }
-            .padding(24)
             .navigationTitle("Frecuencia cardiaca")
             .confirmationDialog(
                 "¿Borrar todas las lecturas?",
@@ -71,6 +86,44 @@ struct ContentView: View {
                 Text("Se borrarán las copias guardadas en el iPhone y el Apple Watch.")
             }
         }
+    }
+}
+
+private struct MotionCard: View {
+    let title: String
+    let unit: String
+    let values: (Double, Double, Double)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title).font(.headline)
+                Spacer()
+                Text(unit).font(.caption).foregroundStyle(.secondary)
+            }
+            HStack {
+                AxisValue(axis: "X", value: values?.0)
+                AxisValue(axis: "Y", value: values?.1)
+                AxisValue(axis: "Z", value: values?.2)
+            }
+        }
+        .padding()
+        .background(.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+    }
+}
+
+private struct AxisValue: View {
+    let axis: String
+    let value: Double?
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(axis).font(.caption).foregroundStyle(.secondary)
+            Text(value.map { String(format: "%.3f", $0) } ?? "--")
+                .font(.system(.body, design: .monospaced))
+                .contentTransition(.numericText())
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
