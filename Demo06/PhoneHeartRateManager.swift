@@ -109,7 +109,7 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
         }
         guard !motionManager.isDeviceMotionActive else { return }
         motionError = nil
-        motionManager.deviceMotionUpdateInterval = 1
+        motionManager.deviceMotionUpdateInterval = 0.25
         motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, error in
             Task { @MainActor in
                 guard let self else { return }
