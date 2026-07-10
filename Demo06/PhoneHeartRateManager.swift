@@ -14,6 +14,12 @@ struct HeartRateReading: Codable, Identifiable, Hashable {
         self.timestamp = ReadingFormat.string(from: date)
     }
 
+    init(id: Int64, bpm: Double, timestamp: String) {
+        self.id = id
+        self.bpm = bpm
+        self.timestamp = timestamp
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id, bpm, timestamp
     }
@@ -49,6 +55,18 @@ struct MotionReading: Codable, Identifiable, Hashable {
         rotationX = motion.rotationRate.x
         rotationY = motion.rotationRate.y
         rotationZ = motion.rotationRate.z
+    }
+
+    init(id: Int64, timestamp: String, accelerationX: Double, accelerationY: Double, accelerationZ: Double,
+         rotationX: Double, rotationY: Double, rotationZ: Double) {
+        self.id = id
+        self.timestamp = timestamp
+        self.accelerationX = accelerationX
+        self.accelerationY = accelerationY
+        self.accelerationZ = accelerationZ
+        self.rotationX = rotationX
+        self.rotationY = rotationY
+        self.rotationZ = rotationZ
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -110,6 +128,58 @@ private enum ReadingFormat {
     }
 }
 
+private extension Array where Element == String {
+    var csvLine: String {
+        map { value in
+            let escaped = value.replacingOccurrences(of: "\"", with: "\"\"")
+            if escaped.contains(",") || escaped.contains("\"") || escaped.contains("\n") {
+                return "\"\(escaped)\""
+            }
+            return escaped
+        }
+        .joined(separator: ",")
+    }
+}
+
+private extension String {
+    var csvRows: [[String]] {
+        split(whereSeparator: \.isNewline).map { line in
+            var rows: [String] = []
+            var current = ""
+            var isInsideQuotes = false
+            var iterator = Array(line).makeIterator()
+
+            while let character = iterator.next() {
+                if character == "\"" {
+                    if isInsideQuotes, let next = iterator.next() {
+                        if next == "\"" {
+                            current.append("\"")
+                        } else {
+                            isInsideQuotes = false
+                            if next == "," {
+                                rows.append(current)
+                                current = ""
+                            } else {
+                                current.append(next)
+                            }
+                        }
+                    } else {
+                        isInsideQuotes.toggle()
+                    }
+                } else if character == "," && !isInsideQuotes {
+                    rows.append(current)
+                    current = ""
+                } else {
+                    current.append(character)
+                }
+            }
+
+            rows.append(current)
+            return rows
+        }
+    }
+}
+
 @MainActor
 final class PhoneHeartRateManager: NSObject, ObservableObject {
     @Published private(set) var readings: [HeartRateReading] = []
@@ -131,17 +201,23 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
 
     private let session: WCSession? = WCSession.isSupported() ? .default : nil
     private let motionManager = CMMotionManager()
-    private let fileURL: URL
+    private let combinedCSVFileURL: URL
     private let heartRateFileURL: URL
     private let motionFileURL: URL
+    private let legacyCombinedJSONFileURL: URL
+    private let legacyHeartRateJSONFileURL: URL
+    private let legacyMotionJSONFileURL: URL
     private var knownIDs = Set<Int64>()
     private var lastMotionID: Int64 = 0
 
     override init() {
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        fileURL = documentsURL.appendingPathComponent("readings-combined.json")
-        heartRateFileURL = documentsURL.appendingPathComponent("heart-rate-readings.json")
-        motionFileURL = documentsURL.appendingPathComponent("motion-readings.json")
+        combinedCSVFileURL = documentsURL.appendingPathComponent("readings-combined.csv")
+        heartRateFileURL = documentsURL.appendingPathComponent("heart-rate-readings.csv")
+        motionFileURL = documentsURL.appendingPathComponent("motion-readings.csv")
+        legacyCombinedJSONFileURL = documentsURL.appendingPathComponent("readings-combined.json")
+        legacyHeartRateJSONFileURL = documentsURL.appendingPathComponent("heart-rate-readings.json")
+        legacyMotionJSONFileURL = documentsURL.appendingPathComponent("motion-readings.json")
         super.init()
         loadReadings()
         saveReadings()
@@ -162,7 +238,7 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
         lastMotionID = 0
         currentBPM = nil
         currentMotion = nil
-        saveReadings()
+        deleteSavedFiles()
         send(command: "clear")
     }
 
@@ -221,15 +297,28 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
     }
 
     private func loadReadings() {
-        guard let data = (try? Data(contentsOf: fileURL)) ?? (try? Data(contentsOf: heartRateFileURL)) else { return }
-        if let stored = try? JSONDecoder().decode(StoredReadings.self, from: data) {
+        if let storedHeartRate = Self.loadHeartRateCSV(from: heartRateFileURL) {
+            readings = storedHeartRate
+        }
+        if let storedMotion = Self.loadMotionCSV(from: motionFileURL) {
+            motionReadings = storedMotion
+        }
+
+        if readings.isEmpty && motionReadings.isEmpty,
+           let data = try? Data(contentsOf: legacyCombinedJSONFileURL),
+           let stored = try? JSONDecoder().decode(StoredReadings.self, from: data) {
             readings = stored.heartRate
             motionReadings = stored.motion
-        } else if let legacyReadings = try? JSONDecoder().decode([HeartRateReading].self, from: data) {
+        }
+
+        if readings.isEmpty,
+           let heartRateData = try? Data(contentsOf: legacyHeartRateJSONFileURL),
+           let legacyReadings = try? JSONDecoder().decode([HeartRateReading].self, from: heartRateData) {
             readings = legacyReadings
         }
+
         if motionReadings.isEmpty,
-           let motionData = try? Data(contentsOf: motionFileURL),
+           let motionData = try? Data(contentsOf: legacyMotionJSONFileURL),
            let storedMotion = try? JSONDecoder().decode([MotionReading].self, from: motionData) {
             motionReadings = storedMotion
         }
@@ -240,24 +329,108 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
     }
 
     private func saveReadings() {
-        let stored = StoredReadings(heartRate: readings, motion: motionReadings)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        if let combinedData = try? encoder.encode(stored) {
-            try? combinedData.write(to: fileURL, options: .atomic)
-        }
-        if let heartRateData = try? encoder.encode(readings) {
-            try? heartRateData.write(to: heartRateFileURL, options: .atomic)
-        }
-        if let motionData = try? encoder.encode(motionReadings) {
-            try? motionData.write(to: motionFileURL, options: .atomic)
-        }
+        try? Self.heartRateCSV(from: readings).write(to: heartRateFileURL, atomically: true, encoding: .utf8)
+        try? Self.motionCSV(from: motionReadings).write(to: motionFileURL, atomically: true, encoding: .utf8)
+        try? Self.combinedCSV(heartRate: readings, motion: motionReadings)
+            .write(to: combinedCSVFileURL, atomically: true, encoding: .utf8)
+    }
+
+    private func deleteSavedFiles() {
+        let urls = [
+            combinedCSVFileURL,
+            heartRateFileURL,
+            motionFileURL,
+            legacyCombinedJSONFileURL,
+            legacyHeartRateJSONFileURL,
+            legacyMotionJSONFileURL
+        ]
+        urls.forEach { try? FileManager.default.removeItem(at: $0) }
     }
 
     private func nextMotionID(for date: Date) -> Int64 {
         let candidate = ReadingFormat.numericID(from: date)
         lastMotionID = max(candidate, lastMotionID + 1)
         return lastMotionID
+    }
+
+    private static func heartRateCSV(from readings: [HeartRateReading]) -> String {
+        let rows = readings.map { reading in
+            [String(reading.id), String(reading.bpm), reading.timestamp].csvLine
+        }
+        return (["id,bpm,timestamp"] + rows).joined(separator: "\n")
+    }
+
+    private static func motionCSV(from readings: [MotionReading]) -> String {
+        let rows = readings.map { reading in
+            [
+                String(reading.id),
+                reading.timestamp,
+                String(reading.accelerationX),
+                String(reading.accelerationY),
+                String(reading.accelerationZ),
+                String(reading.rotationX),
+                String(reading.rotationY),
+                String(reading.rotationZ)
+            ].csvLine
+        }
+        return (["id,timestamp,accelerationX,accelerationY,accelerationZ,rotationX,rotationY,rotationZ"] + rows)
+            .joined(separator: "\n")
+    }
+
+    private static func combinedCSV(heartRate: [HeartRateReading], motion: [MotionReading]) -> String {
+        let heartRows = heartRate.map { reading in
+            ["heart_rate", String(reading.id), reading.timestamp, String(reading.bpm), "", "", "", "", "", ""].csvLine
+        }
+        let motionRows = motion.map { reading in
+            [
+                "motion",
+                String(reading.id),
+                reading.timestamp,
+                "",
+                String(reading.accelerationX),
+                String(reading.accelerationY),
+                String(reading.accelerationZ),
+                String(reading.rotationX),
+                String(reading.rotationY),
+                String(reading.rotationZ)
+            ].csvLine
+        }
+        return (["type,id,timestamp,bpm,accelerationX,accelerationY,accelerationZ,rotationX,rotationY,rotationZ"] + heartRows + motionRows)
+            .joined(separator: "\n")
+    }
+
+    private static func loadHeartRateCSV(from url: URL) -> [HeartRateReading]? {
+        guard let csv = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return csv.csvRows.dropFirst().compactMap { row in
+            guard row.count >= 3,
+                  let id = Int64(row[0]),
+                  let bpm = Double(row[1]) else { return nil }
+            return HeartRateReading(id: id, bpm: bpm, timestamp: row[2])
+        }
+    }
+
+    private static func loadMotionCSV(from url: URL) -> [MotionReading]? {
+        guard let csv = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return csv.csvRows.dropFirst().compactMap { row in
+            guard row.count >= 8,
+                  let id = Int64(row[0]),
+                  let accelerationX = Double(row[2]),
+                  let accelerationY = Double(row[3]),
+                  let accelerationZ = Double(row[4]),
+                  let rotationX = Double(row[5]),
+                  let rotationY = Double(row[6]),
+                  let rotationZ = Double(row[7]) else { return nil }
+            return MotionReading(
+                id: id,
+                timestamp: row[1],
+                accelerationX: accelerationX,
+                accelerationY: accelerationY,
+                accelerationZ: accelerationZ,
+                rotationX: rotationX,
+                rotationY: rotationY,
+                rotationZ: rotationZ
+            )
+        }
     }
 }
 

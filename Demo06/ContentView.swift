@@ -69,27 +69,22 @@ struct ContentView: View {
                     Button(role: .destructive) {
                         showsDeleteConfirmation = true
                     } label: {
-                        Label("Borrar", systemImage: "trash")
+                        Label("Borrar archivos guardados", systemImage: "trash")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
-                    .disabled(heartRate.readings.isEmpty && heartRate.motionReadings.isEmpty)
                 }
                 }
                 .padding(24)
             }
             .navigationTitle("Frecuencia cardiaca")
-            .confirmationDialog(
-                "¿Borrar todas las lecturas?",
-                isPresented: $showsDeleteConfirmation,
-                titleVisibility: .visible
-            ) {
+            .alert("¿Borrar archivos guardados?", isPresented: $showsDeleteConfirmation) {
                 Button("Borrar definitivamente", role: .destructive) {
                     heartRate.clearReadings()
                 }
                 Button("Cancelar", role: .cancel) {}
             } message: {
-                Text("Se borrarán las copias guardadas en el iPhone y el Apple Watch.")
+                Text("Se eliminarán los archivos CSV y JSON guardados, y también se limpiarán las lecturas en memoria.")
             }
         }
     }

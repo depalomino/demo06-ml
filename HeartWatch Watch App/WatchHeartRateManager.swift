@@ -13,6 +13,12 @@ struct WatchHeartRateReading: Codable, Identifiable, Hashable {
         timestamp = WatchReadingFormat.string(from: date)
     }
 
+    init(id: Int64, bpm: Double, timestamp: String) {
+        self.id = id
+        self.bpm = bpm
+        self.timestamp = timestamp
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id, bpm, timestamp
     }
@@ -62,6 +68,58 @@ private enum WatchReadingFormat {
     }
 }
 
+private extension Array where Element == String {
+    var csvLine: String {
+        map { value in
+            let escaped = value.replacingOccurrences(of: "\"", with: "\"\"")
+            if escaped.contains(",") || escaped.contains("\"") || escaped.contains("\n") {
+                return "\"\(escaped)\""
+            }
+            return escaped
+        }
+        .joined(separator: ",")
+    }
+}
+
+private extension String {
+    var csvRows: [[String]] {
+        split(whereSeparator: \.isNewline).map { line in
+            var rows: [String] = []
+            var current = ""
+            var isInsideQuotes = false
+            var iterator = Array(line).makeIterator()
+
+            while let character = iterator.next() {
+                if character == "\"" {
+                    if isInsideQuotes, let next = iterator.next() {
+                        if next == "\"" {
+                            current.append("\"")
+                        } else {
+                            isInsideQuotes = false
+                            if next == "," {
+                                rows.append(current)
+                                current = ""
+                            } else {
+                                current.append(next)
+                            }
+                        }
+                    } else {
+                        isInsideQuotes.toggle()
+                    }
+                } else if character == "," && !isInsideQuotes {
+                    rows.append(current)
+                    current = ""
+                } else {
+                    current.append(character)
+                }
+            }
+
+            rows.append(current)
+            return rows
+        }
+    }
+}
+
 final class WatchHeartRateManager: NSObject, ObservableObject {
     @Published private(set) var currentBPM: Double?
     @Published private(set) var isCapturing = false
@@ -83,12 +141,15 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
     private var lastReadingID: Int64 = 0
     private let recordingInterval: TimeInterval = 3
     private let fileURL: URL
+    private let legacyJSONFileURL: URL
 
     override init() {
-        fileURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("heart-rate-readings.json")
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        fileURL = documentsURL.appendingPathComponent("heart-rate-readings.csv")
+        legacyJSONFileURL = documentsURL.appendingPathComponent("heart-rate-readings.json")
         super.init()
         loadReadings()
+        saveReadings()
         session?.delegate = self
         session?.activate()
     }
@@ -185,7 +246,7 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
         knownIDs.removeAll()
         lastReadingID = 0
         currentBPM = nil
-        saveReadings()
+        deleteSavedFiles()
     }
 
     private func publishState() {
@@ -198,8 +259,15 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
     private func showError(_ message: String) { errorMessage = message }
 
     private func loadReadings() {
-        guard let data = try? Data(contentsOf: fileURL),
-              let stored = try? JSONDecoder().decode([WatchHeartRateReading].self, from: data) else { return }
+        let stored: [WatchHeartRateReading]
+        if let csvReadings = Self.loadHeartRateCSV(from: fileURL) {
+            stored = csvReadings
+        } else if let data = try? Data(contentsOf: legacyJSONFileURL),
+                  let jsonReadings = try? JSONDecoder().decode([WatchHeartRateReading].self, from: data) {
+            stored = jsonReadings
+        } else {
+            return
+        }
         readings = stored
         knownIDs = Set(stored.map(\.id))
         lastReadingID = stored.map(\.id).max() ?? 0
@@ -207,14 +275,35 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
     }
 
     private func saveReadings() {
-        guard let data = try? JSONEncoder().encode(readings) else { return }
-        try? data.write(to: fileURL, options: .atomic)
+        try? Self.heartRateCSV(from: readings).write(to: fileURL, atomically: true, encoding: .utf8)
+    }
+
+    private func deleteSavedFiles() {
+        try? FileManager.default.removeItem(at: fileURL)
+        try? FileManager.default.removeItem(at: legacyJSONFileURL)
     }
 
     private func nextReadingID(for date: Date) -> Int64 {
         let candidate = WatchReadingFormat.numericID(from: date)
         lastReadingID = max(candidate, lastReadingID + 1)
         return lastReadingID
+    }
+
+    private static func heartRateCSV(from readings: [WatchHeartRateReading]) -> String {
+        let rows = readings.map { reading in
+            [String(reading.id), String(reading.bpm), reading.timestamp].csvLine
+        }
+        return (["id,bpm,timestamp"] + rows).joined(separator: "\n")
+    }
+
+    private static func loadHeartRateCSV(from url: URL) -> [WatchHeartRateReading]? {
+        guard let csv = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return csv.csvRows.dropFirst().compactMap { row in
+            guard row.count >= 3,
+                  let id = Int64(row[0]),
+                  let bpm = Double(row[1]) else { return nil }
+            return WatchHeartRateReading(id: id, bpm: bpm, timestamp: row[2])
+        }
     }
 }
 
