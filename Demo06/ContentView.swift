@@ -30,11 +30,11 @@ struct ContentView: View {
                     StatusRow(title: "Muestras de movimiento", value: "\(heartRate.motionReadings.count)", color: .blue)
                 }
 
-                MotionCard(title: "Acelerómetro", unit: "g", values: heartRate.currentMotion.map {
+                MotionCard(title: "Acelerómetro", unit: "m/s²", values: heartRate.currentMotion.map {
                     ($0.accelerationX, $0.accelerationY, $0.accelerationZ)
                 })
 
-                MotionCard(title: "Giroscopio", unit: "rad/s", values: heartRate.currentMotion.map {
+                MotionCard(title: "Giroscopio", unit: "°/s", values: heartRate.currentMotion.map {
                     ($0.rotationX, $0.rotationY, $0.rotationZ)
                 })
 

@@ -47,14 +47,16 @@ struct MotionReading: Codable, Identifiable, Hashable {
     let rotationZ: Double
 
     init(id: Int64, motion: CMDeviceMotion, date: Date = Date()) {
+        let gravity = 9.80665
+        let degreesPerRadian = 180.0 / Double.pi
         self.id = id
         timestamp = ReadingFormat.string(from: date)
-        accelerationX = motion.userAcceleration.x + motion.gravity.x
-        accelerationY = motion.userAcceleration.y + motion.gravity.y
-        accelerationZ = motion.userAcceleration.z + motion.gravity.z
-        rotationX = motion.rotationRate.x
-        rotationY = motion.rotationRate.y
-        rotationZ = motion.rotationRate.z
+        accelerationX = (motion.userAcceleration.x + motion.gravity.x) * gravity
+        accelerationY = (motion.userAcceleration.y + motion.gravity.y) * gravity
+        accelerationZ = (motion.userAcceleration.z + motion.gravity.z) * gravity
+        rotationX = motion.rotationRate.x * degreesPerRadian
+        rotationY = motion.rotationRate.y * degreesPerRadian
+        rotationZ = motion.rotationRate.z * degreesPerRadian
     }
 
     init(id: Int64, timestamp: String, accelerationX: Double, accelerationY: Double, accelerationZ: Double,
@@ -308,7 +310,7 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
            let data = try? Data(contentsOf: legacyCombinedJSONFileURL),
            let stored = try? JSONDecoder().decode(StoredReadings.self, from: data) {
             readings = stored.heartRate
-            motionReadings = stored.motion
+            motionReadings = Self.convertLegacyMotionUnits(stored.motion)
         }
 
         if readings.isEmpty,
@@ -320,7 +322,7 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
         if motionReadings.isEmpty,
            let motionData = try? Data(contentsOf: legacyMotionJSONFileURL),
            let storedMotion = try? JSONDecoder().decode([MotionReading].self, from: motionData) {
-            motionReadings = storedMotion
+            motionReadings = Self.convertLegacyMotionUnits(storedMotion)
         }
         knownIDs = Set(readings.map(\.id))
         currentBPM = readings.last?.bpm
@@ -373,7 +375,7 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
                 String(reading.rotationZ)
             ].csvLine
         }
-        return (["id,timestamp,accelerationX,accelerationY,accelerationZ,rotationX,rotationY,rotationZ"] + rows)
+        return (["id,timestamp,accelerationX_mps2,accelerationY_mps2,accelerationZ_mps2,rotationX_deg_s,rotationY_deg_s,rotationZ_deg_s"] + rows)
             .joined(separator: "\n")
     }
 
@@ -395,7 +397,7 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
                 String(reading.rotationZ)
             ].csvLine
         }
-        return (["type,id,timestamp,bpm,accelerationX,accelerationY,accelerationZ,rotationX,rotationY,rotationZ"] + heartRows + motionRows)
+        return (["type,id,timestamp,bpm,accelerationX_mps2,accelerationY_mps2,accelerationZ_mps2,rotationX_deg_s,rotationY_deg_s,rotationZ_deg_s"] + heartRows + motionRows)
             .joined(separator: "\n")
     }
 
@@ -411,7 +413,10 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
 
     private static func loadMotionCSV(from url: URL) -> [MotionReading]? {
         guard let csv = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-        return csv.csvRows.dropFirst().compactMap { row in
+        let rows = csv.csvRows
+        let header = rows.first ?? []
+        let usesLegacyUnits = header.contains("accelerationX") || header.contains("rotationX")
+        let parsed = rows.dropFirst().compactMap { row in
             guard row.count >= 8,
                   let id = Int64(row[0]),
                   let accelerationX = Double(row[2]),
@@ -429,6 +434,24 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
                 rotationX: rotationX,
                 rotationY: rotationY,
                 rotationZ: rotationZ
+            )
+        }
+        return usesLegacyUnits ? convertLegacyMotionUnits(parsed) : parsed
+    }
+
+    private static func convertLegacyMotionUnits(_ readings: [MotionReading]) -> [MotionReading] {
+        let gravity = 9.80665
+        let degreesPerRadian = 180.0 / Double.pi
+        return readings.map { reading in
+            MotionReading(
+                id: reading.id,
+                timestamp: reading.timestamp,
+                accelerationX: reading.accelerationX * gravity,
+                accelerationY: reading.accelerationY * gravity,
+                accelerationZ: reading.accelerationZ * gravity,
+                rotationX: reading.rotationX * degreesPerRadian,
+                rotationY: reading.rotationY * degreesPerRadian,
+                rotationZ: reading.rotationZ * degreesPerRadian
             )
         }
     }
