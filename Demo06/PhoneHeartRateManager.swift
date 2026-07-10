@@ -3,25 +3,35 @@ import CoreMotion
 import WatchConnectivity
 
 struct HeartRateReading: Codable, Identifiable, Hashable {
-    let id: UUID
+    let id: Int64
     let bpm: Double
     let timestamp: String
 
-    init(id: UUID = UUID(), bpm: Double, date: Date = Date()) {
+    init(id: Int64? = nil, bpm: Double, date: Date = Date()) {
         self.id = id
+            ?? ReadingFormat.numericID(from: date)
         self.bpm = bpm
-        self.timestamp = Self.formatter.string(from: date)
+        self.timestamp = ReadingFormat.string(from: date)
     }
 
-    private static let formatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
+    private enum CodingKeys: String, CodingKey {
+        case id, bpm, timestamp
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        bpm = try container.decode(Double.self, forKey: .bpm)
+        timestamp = try container.decode(String.self, forKey: .timestamp)
+        if let numericID = try? container.decode(Int64.self, forKey: .id) {
+            id = numericID
+        } else {
+            id = ReadingFormat.numericID(fromTimestamp: timestamp)
+        }
+    }
 }
 
 struct MotionReading: Codable, Identifiable, Hashable {
-    let id: UUID
+    let id: Int64
     let timestamp: String
     let accelerationX: Double
     let accelerationY: Double
@@ -30,15 +40,35 @@ struct MotionReading: Codable, Identifiable, Hashable {
     let rotationY: Double
     let rotationZ: Double
 
-    init(motion: CMDeviceMotion, date: Date = Date()) {
-        id = UUID()
-        timestamp = ISO8601DateFormatter.readingFormatter.string(from: date)
+    init(id: Int64, motion: CMDeviceMotion, date: Date = Date()) {
+        self.id = id
+        timestamp = ReadingFormat.string(from: date)
         accelerationX = motion.userAcceleration.x + motion.gravity.x
         accelerationY = motion.userAcceleration.y + motion.gravity.y
         accelerationZ = motion.userAcceleration.z + motion.gravity.z
         rotationX = motion.rotationRate.x
         rotationY = motion.rotationRate.y
         rotationZ = motion.rotationRate.z
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, timestamp, accelerationX, accelerationY, accelerationZ, rotationX, rotationY, rotationZ
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        timestamp = try container.decode(String.self, forKey: .timestamp)
+        accelerationX = try container.decode(Double.self, forKey: .accelerationX)
+        accelerationY = try container.decode(Double.self, forKey: .accelerationY)
+        accelerationZ = try container.decode(Double.self, forKey: .accelerationZ)
+        rotationX = try container.decode(Double.self, forKey: .rotationX)
+        rotationY = try container.decode(Double.self, forKey: .rotationY)
+        rotationZ = try container.decode(Double.self, forKey: .rotationZ)
+        if let numericID = try? container.decode(Int64.self, forKey: .id) {
+            id = numericID
+        } else {
+            id = ReadingFormat.numericID(fromTimestamp: timestamp)
+        }
     }
 }
 
@@ -47,12 +77,37 @@ private struct StoredReadings: Codable {
     var motion: [MotionReading]
 }
 
-private extension ISO8601DateFormatter {
-    static let readingFormatter: ISO8601DateFormatter = {
+private enum ReadingFormat {
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+        return formatter
+    }()
+
+    private static let isoFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
+
+    static func string(from date: Date) -> String {
+        dateFormatter.string(from: date)
+    }
+
+    static func numericID(from date: Date) -> Int64 {
+        Int64((date.timeIntervalSince1970 * 1_000).rounded())
+    }
+
+    static func numericID(fromTimestamp timestamp: String) -> Int64 {
+        if let date = dateFormatter.date(from: timestamp) {
+            return numericID(from: date)
+        }
+        if let date = isoFormatter.date(from: timestamp) {
+            return numericID(from: date)
+        }
+        return numericID(from: Date())
+    }
 }
 
 @MainActor
@@ -71,16 +126,22 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
         return isReachable ? "Conectado" : "Sin conexión directa"
     }
 
-    var exportFileURL: URL { fileURL }
+    var heartRateExportFileURL: URL { heartRateFileURL }
+    var motionExportFileURL: URL { motionFileURL }
 
     private let session: WCSession? = WCSession.isSupported() ? .default : nil
     private let motionManager = CMMotionManager()
     private let fileURL: URL
-    private var knownIDs = Set<UUID>()
+    private let heartRateFileURL: URL
+    private let motionFileURL: URL
+    private var knownIDs = Set<Int64>()
+    private var lastMotionID: Int64 = 0
 
     override init() {
-        fileURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("heart-rate-readings.json")
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        fileURL = documentsURL.appendingPathComponent("readings-combined.json")
+        heartRateFileURL = documentsURL.appendingPathComponent("heart-rate-readings.json")
+        motionFileURL = documentsURL.appendingPathComponent("motion-readings.json")
         super.init()
         loadReadings()
         saveReadings()
@@ -97,6 +158,8 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
     func clearReadings() {
         readings.removeAll()
         motionReadings.removeAll()
+        knownIDs.removeAll()
+        lastMotionID = 0
         currentBPM = nil
         currentMotion = nil
         saveReadings()
@@ -119,7 +182,8 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
                     return
                 }
                 guard self.isCapturing, let motion else { return }
-                let reading = MotionReading(motion: motion)
+                let now = Date()
+                let reading = MotionReading(id: self.nextMotionID(for: now), motion: motion, date: now)
                 self.currentMotion = reading
                 self.motionReadings.append(reading)
                 self.saveReadings()
@@ -157,24 +221,43 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
     }
 
     private func loadReadings() {
-        guard let data = try? Data(contentsOf: fileURL) else { return }
+        guard let data = (try? Data(contentsOf: fileURL)) ?? (try? Data(contentsOf: heartRateFileURL)) else { return }
         if let stored = try? JSONDecoder().decode(StoredReadings.self, from: data) {
             readings = stored.heartRate
             motionReadings = stored.motion
         } else if let legacyReadings = try? JSONDecoder().decode([HeartRateReading].self, from: data) {
             readings = legacyReadings
         }
+        if motionReadings.isEmpty,
+           let motionData = try? Data(contentsOf: motionFileURL),
+           let storedMotion = try? JSONDecoder().decode([MotionReading].self, from: motionData) {
+            motionReadings = storedMotion
+        }
         knownIDs = Set(readings.map(\.id))
         currentBPM = readings.last?.bpm
         currentMotion = motionReadings.last
+        lastMotionID = motionReadings.map(\.id).max() ?? 0
     }
 
     private func saveReadings() {
         let stored = StoredReadings(heartRate: readings, motion: motionReadings)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(stored) else { return }
-        try? data.write(to: fileURL, options: .atomic)
+        if let combinedData = try? encoder.encode(stored) {
+            try? combinedData.write(to: fileURL, options: .atomic)
+        }
+        if let heartRateData = try? encoder.encode(readings) {
+            try? heartRateData.write(to: heartRateFileURL, options: .atomic)
+        }
+        if let motionData = try? encoder.encode(motionReadings) {
+            try? motionData.write(to: motionFileURL, options: .atomic)
+        }
+    }
+
+    private func nextMotionID(for date: Date) -> Int64 {
+        let candidate = ReadingFormat.numericID(from: date)
+        lastMotionID = max(candidate, lastMotionID + 1)
+        return lastMotionID
     }
 }
 

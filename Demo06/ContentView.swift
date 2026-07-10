@@ -53,9 +53,15 @@ struct ContentView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(heartRate.isCapturing ? .red : .green)
 
-                HStack(spacing: 12) {
-                    ShareLink(item: heartRate.exportFileURL) {
-                        Label("Exportar", systemImage: "square.and.arrow.up")
+                VStack(spacing: 12) {
+                    ShareLink(item: heartRate.heartRateExportFileURL) {
+                        Label("Exportar frecuencia cardiaca", systemImage: "heart.text.square")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
+                    ShareLink(item: heartRate.motionExportFileURL) {
+                        Label("Exportar acelerómetro y giroscopio", systemImage: "gyroscope")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)

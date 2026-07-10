@@ -3,16 +3,62 @@ import HealthKit
 import WatchConnectivity
 
 struct WatchHeartRateReading: Codable, Identifiable, Hashable {
-    let id: UUID
+    let id: Int64
     let bpm: Double
     let timestamp: String
 
-    init(bpm: Double, date: Date) {
-        id = UUID()
+    init(id: Int64, bpm: Double, date: Date) {
+        self.id = id
         self.bpm = bpm
+        timestamp = WatchReadingFormat.string(from: date)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, bpm, timestamp
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        bpm = try container.decode(Double.self, forKey: .bpm)
+        timestamp = try container.decode(String.self, forKey: .timestamp)
+        if let numericID = try? container.decode(Int64.self, forKey: .id) {
+            id = numericID
+        } else {
+            id = WatchReadingFormat.numericID(fromTimestamp: timestamp)
+        }
+    }
+}
+
+private enum WatchReadingFormat {
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+        return formatter
+    }()
+
+    private static let isoFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        timestamp = formatter.string(from: date)
+        return formatter
+    }()
+
+    static func string(from date: Date) -> String {
+        dateFormatter.string(from: date)
+    }
+
+    static func numericID(from date: Date) -> Int64 {
+        Int64((date.timeIntervalSince1970 * 1_000).rounded())
+    }
+
+    static func numericID(fromTimestamp timestamp: String) -> Int64 {
+        if let date = dateFormatter.date(from: timestamp) {
+            return numericID(from: date)
+        }
+        if let date = isoFormatter.date(from: timestamp) {
+            return numericID(from: date)
+        }
+        return numericID(from: Date())
     }
 }
 
@@ -32,8 +78,9 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
     private var workoutSession: HKWorkoutSession?
     private var workoutBuilder: HKLiveWorkoutBuilder?
     private var readings: [WatchHeartRateReading] = []
-    private var knownIDs = Set<UUID>()
+    private var knownIDs = Set<Int64>()
     private var lastRecordedAt: Date?
+    private var lastReadingID: Int64 = 0
     private let recordingInterval: TimeInterval = 3
     private let fileURL: URL
 
@@ -108,7 +155,7 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
         guard bpm > 0 else { return }
         if let lastRecordedAt, date.timeIntervalSince(lastRecordedAt) < recordingInterval { return }
         lastRecordedAt = date
-        let reading = WatchHeartRateReading(bpm: bpm, date: date)
+        let reading = WatchHeartRateReading(id: nextReadingID(for: date), bpm: bpm, date: date)
         guard knownIDs.insert(reading.id).inserted else { return }
         readings.append(reading)
         currentBPM = bpm
@@ -135,6 +182,8 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
 
     private func clearReadings() {
         readings.removeAll()
+        knownIDs.removeAll()
+        lastReadingID = 0
         currentBPM = nil
         saveReadings()
     }
@@ -153,12 +202,19 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
               let stored = try? JSONDecoder().decode([WatchHeartRateReading].self, from: data) else { return }
         readings = stored
         knownIDs = Set(stored.map(\.id))
+        lastReadingID = stored.map(\.id).max() ?? 0
         currentBPM = stored.last?.bpm
     }
 
     private func saveReadings() {
         guard let data = try? JSONEncoder().encode(readings) else { return }
         try? data.write(to: fileURL, options: .atomic)
+    }
+
+    private func nextReadingID(for date: Date) -> Int64 {
+        let candidate = WatchReadingFormat.numericID(from: date)
+        lastReadingID = max(candidate, lastReadingID + 1)
+        return lastReadingID
     }
 }
 
