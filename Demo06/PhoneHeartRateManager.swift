@@ -67,6 +67,7 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
 
     var connectionText: String {
         guard WCSession.isSupported() else { return "No compatible" }
+        if isCapturing && !isReachable { return "Capturando; sincronización pendiente" }
         return isReachable ? "Conectado" : "Sin conexión directa"
     }
 
@@ -133,12 +134,11 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
     private func send(command commandName: String) {
         let command: [String: Any] = ["command": commandName]
         try? session?.updateApplicationContext(command)
+        session?.transferUserInfo(command)
         if session?.isReachable == true {
             session?.sendMessage(command, replyHandler: nil) { error in
                 print("No se pudo enviar el comando: \(error.localizedDescription)")
             }
-        } else {
-            session?.transferUserInfo(command)
         }
     }
 
@@ -181,7 +181,10 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
 extension PhoneHeartRateManager: WCSessionDelegate {
     nonisolated func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState,
                              error: Error?) {
-        Task { @MainActor in self.isReachable = session.isReachable }
+        Task { @MainActor in
+            self.isReachable = session.isReachable
+            self.applyWatchState(session.receivedApplicationContext)
+        }
     }
 
     nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
@@ -203,7 +206,10 @@ extension PhoneHeartRateManager: WCSessionDelegate {
     }
 
     nonisolated func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
-        Task { @MainActor in self.applyWatchState(applicationContext) }
+        Task { @MainActor in
+            self.decodeReading(from: applicationContext)
+            self.applyWatchState(applicationContext)
+        }
     }
 
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}

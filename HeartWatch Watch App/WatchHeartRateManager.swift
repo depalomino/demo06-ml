@@ -22,7 +22,10 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
     @Published private(set) var isReachable = false
     @Published private(set) var errorMessage: String?
 
-    var connectionText: String { isReachable ? "iPhone conectado" : "Sin conexión directa" }
+    var connectionText: String {
+        if isCapturing && !isReachable { return "Guardando; sincroniza luego" }
+        return isReachable ? "iPhone conectado" : "Sin conexión directa"
+    }
 
     private let healthStore = HKHealthStore()
     private let session: WCSession? = WCSession.isSupported() ? .default : nil
@@ -113,6 +116,7 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
 
         guard let data = try? JSONEncoder().encode(reading) else { return }
         let payload: [String: Any] = ["reading": data, "capturing": isCapturing]
+        try? session?.updateApplicationContext(payload)
         session?.transferUserInfo(payload)
         if session?.isReachable == true {
             session?.sendMessage(payload, replyHandler: nil, errorHandler: nil)
@@ -138,6 +142,7 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
     private func publishState() {
         let state: [String: Any] = ["capturing": isCapturing]
         try? session?.updateApplicationContext(state)
+        session?.transferUserInfo(state)
         if session?.isReachable == true { session?.sendMessage(state, replyHandler: nil, errorHandler: nil) }
     }
 
