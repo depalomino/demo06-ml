@@ -2,6 +2,10 @@ import Foundation
 import HealthKit
 import WatchConnectivity
 
+enum AppCaptureMode {
+    static let useDummyData = true
+}
+
 struct WatchHeartRateReading: Codable, Identifiable, Hashable {
     let id: Int64
     let bpm: Double
@@ -30,7 +34,7 @@ struct WatchHeartRateReading: Codable, Identifiable, Hashable {
         if let numericID = try? container.decode(Int64.self, forKey: .id) {
             id = numericID
         } else {
-            id = WatchReadingFormat.numericID(fromTimestamp: timestamp)
+            id = 0
         }
     }
 }
@@ -43,28 +47,8 @@ private enum WatchReadingFormat {
         return formatter
     }()
 
-    private static let isoFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
     static func string(from date: Date) -> String {
         dateFormatter.string(from: date)
-    }
-
-    static func numericID(from date: Date) -> Int64 {
-        Int64((date.timeIntervalSince1970 * 1_000).rounded())
-    }
-
-    static func numericID(fromTimestamp timestamp: String) -> Int64 {
-        if let date = dateFormatter.date(from: timestamp) {
-            return numericID(from: date)
-        }
-        if let date = isoFormatter.date(from: timestamp) {
-            return numericID(from: date)
-        }
-        return numericID(from: Date())
     }
 }
 
@@ -127,6 +111,7 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
     @Published private(set) var errorMessage: String?
 
     var connectionText: String {
+        if AppCaptureMode.useDummyData { return "Modo dummy" }
         if isCapturing && !isReachable { return "Guardando; sincroniza luego" }
         return isReachable ? "iPhone conectado" : "Sin conexión directa"
     }
@@ -139,6 +124,8 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
     private var knownIDs = Set<Int64>()
     private var lastRecordedAt: Date?
     private var lastReadingID: Int64 = 0
+    private var dummyHeartRateTimer: Timer?
+    private var dummyTick: Double = 0
     private let recordingInterval: TimeInterval = 3
     private let fileURL: URL
     private let legacyJSONFileURL: URL
@@ -150,11 +137,27 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
         super.init()
         loadReadings()
         saveReadings()
-        session?.delegate = self
-        session?.activate()
+        if AppCaptureMode.useDummyData {
+            isReachable = true
+            isCapturing = true
+            startDummyCapture()
+        } else {
+            session?.delegate = self
+            session?.activate()
+        }
+    }
+
+    deinit {
+        dummyHeartRateTimer?.invalidate()
     }
 
     private func startCapture() {
+        if AppCaptureMode.useDummyData {
+            isCapturing = true
+            startDummyCapture()
+            publishState()
+            return
+        }
         guard !isCapturing else { return }
         guard HKHealthStore.isHealthDataAvailable(),
               let heartRateType = HKObjectType.quantityType(forIdentifier: .heartRate) else {
@@ -206,17 +209,47 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
     }
 
     private func stopCapture() {
+        if AppCaptureMode.useDummyData {
+            isCapturing = false
+            stopDummyCapture()
+            publishState()
+            return
+        }
         guard isCapturing || workoutSession != nil else { publishState(); return }
         workoutSession?.end()
         isCapturing = false
         publishState()
     }
 
+    private func startDummyCapture() {
+        guard dummyHeartRateTimer == nil else { return }
+        recordDummyHeartRate()
+        dummyHeartRateTimer = Timer.scheduledTimer(withTimeInterval: recordingInterval, repeats: true) { [weak self] _ in
+            DispatchQueue.main.async { self?.recordDummyHeartRate() }
+        }
+    }
+
+    private func stopDummyCapture() {
+        dummyHeartRateTimer?.invalidate()
+        dummyHeartRateTimer = nil
+    }
+
+    private func recordDummyHeartRate() {
+        guard isCapturing else { return }
+        dummyTick += 1
+        let bpm = 74 + 7 * sin(dummyTick / 3) + Double.random(in: -2...2)
+        let reading = WatchHeartRateReading(id: nextReadingID(), bpm: bpm, date: Date())
+        guard knownIDs.insert(reading.id).inserted else { return }
+        readings.append(reading)
+        currentBPM = bpm
+        saveReadings()
+    }
+
     private func record(bpm: Double, date: Date) {
         guard bpm > 0 else { return }
         if let lastRecordedAt, date.timeIntervalSince(lastRecordedAt) < recordingInterval { return }
         lastRecordedAt = date
-        let reading = WatchHeartRateReading(id: nextReadingID(for: date), bpm: bpm, date: date)
+        let reading = WatchHeartRateReading(id: nextReadingID(), bpm: bpm, date: date)
         guard knownIDs.insert(reading.id).inserted else { return }
         readings.append(reading)
         currentBPM = bpm
@@ -250,6 +283,7 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
     }
 
     private func publishState() {
+        guard !AppCaptureMode.useDummyData else { return }
         let state: [String: Any] = ["capturing": isCapturing]
         try? session?.updateApplicationContext(state)
         session?.transferUserInfo(state)
@@ -268,10 +302,10 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
         } else {
             return
         }
-        readings = stored
-        knownIDs = Set(stored.map(\.id))
-        lastReadingID = stored.map(\.id).max() ?? 0
-        currentBPM = stored.last?.bpm
+        readings = Self.renumberHeartRate(stored)
+        knownIDs = Set(readings.map(\.id))
+        lastReadingID = readings.map(\.id).max() ?? 0
+        currentBPM = readings.last?.bpm
     }
 
     private func saveReadings() {
@@ -283,9 +317,8 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
         try? FileManager.default.removeItem(at: legacyJSONFileURL)
     }
 
-    private func nextReadingID(for date: Date) -> Int64 {
-        let candidate = WatchReadingFormat.numericID(from: date)
-        lastReadingID = max(candidate, lastReadingID + 1)
+    private func nextReadingID() -> Int64 {
+        lastReadingID += 1
         return lastReadingID
     }
 
@@ -304,6 +337,15 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
                   let bpm = Double(row[1]) else { return nil }
             return WatchHeartRateReading(id: id, bpm: bpm, timestamp: row[2])
         }
+    }
+
+    private static func renumberHeartRate(_ readings: [WatchHeartRateReading]) -> [WatchHeartRateReading] {
+        readings
+            .sorted { $0.timestamp < $1.timestamp }
+            .enumerated()
+            .map { index, reading in
+                WatchHeartRateReading(id: Int64(index + 1), bpm: reading.bpm, timestamp: reading.timestamp)
+            }
     }
 }
 

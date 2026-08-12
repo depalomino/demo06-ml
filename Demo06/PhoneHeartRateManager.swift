@@ -2,14 +2,17 @@ import Foundation
 import CoreMotion
 import WatchConnectivity
 
+enum AppCaptureMode {
+    static let useDummyData = true
+}
+
 struct HeartRateReading: Codable, Identifiable, Hashable {
     let id: Int64
     let bpm: Double
     let timestamp: String
 
     init(id: Int64? = nil, bpm: Double, date: Date = Date()) {
-        self.id = id
-            ?? ReadingFormat.numericID(from: date)
+        self.id = id ?? 0
         self.bpm = bpm
         self.timestamp = ReadingFormat.string(from: date)
     }
@@ -31,7 +34,7 @@ struct HeartRateReading: Codable, Identifiable, Hashable {
         if let numericID = try? container.decode(Int64.self, forKey: .id) {
             id = numericID
         } else {
-            id = ReadingFormat.numericID(fromTimestamp: timestamp)
+            id = 0
         }
     }
 }
@@ -87,7 +90,7 @@ struct MotionReading: Codable, Identifiable, Hashable {
         if let numericID = try? container.decode(Int64.self, forKey: .id) {
             id = numericID
         } else {
-            id = ReadingFormat.numericID(fromTimestamp: timestamp)
+            id = 0
         }
     }
 }
@@ -105,28 +108,8 @@ private enum ReadingFormat {
         return formatter
     }()
 
-    private static let isoFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
     static func string(from date: Date) -> String {
         dateFormatter.string(from: date)
-    }
-
-    static func numericID(from date: Date) -> Int64 {
-        Int64((date.timeIntervalSince1970 * 1_000).rounded())
-    }
-
-    static func numericID(fromTimestamp timestamp: String) -> Int64 {
-        if let date = dateFormatter.date(from: timestamp) {
-            return numericID(from: date)
-        }
-        if let date = isoFormatter.date(from: timestamp) {
-            return numericID(from: date)
-        }
-        return numericID(from: Date())
     }
 }
 
@@ -193,6 +176,7 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
     @Published private(set) var motionError: String?
 
     var connectionText: String {
+        if AppCaptureMode.useDummyData { return "Modo dummy" }
         guard WCSession.isSupported() else { return "No compatible" }
         if isCapturing && !isReachable { return "Capturando; sincronización pendiente" }
         return isReachable ? "Conectado" : "Sin conexión directa"
@@ -211,6 +195,10 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
     private let legacyMotionJSONFileURL: URL
     private var knownIDs = Set<Int64>()
     private var lastMotionID: Int64 = 0
+    private var lastHeartRateID: Int64 = 0
+    private var dummyHeartRateTimer: Timer?
+    private var dummyMotionTimer: Timer?
+    private var dummyTick: Double = 0
 
     override init() {
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -223,14 +211,27 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
         super.init()
         loadReadings()
         saveReadings()
-        session?.delegate = self
-        session?.activate()
+        if AppCaptureMode.useDummyData {
+            isReachable = true
+        } else {
+            session?.delegate = self
+            session?.activate()
+        }
+    }
+
+    deinit {
+        dummyHeartRateTimer?.invalidate()
+        dummyMotionTimer?.invalidate()
     }
 
     func setCapture(active: Bool) {
         isCapturing = active
-        active ? startMotionCapture() : stopMotionCapture()
-        send(command: active ? "start" : "stop")
+        if AppCaptureMode.useDummyData {
+            active ? startDummyCapture() : stopDummyCapture()
+        } else {
+            active ? startMotionCapture() : stopMotionCapture()
+            send(command: active ? "start" : "stop")
+        }
     }
 
     func clearReadings() {
@@ -238,10 +239,13 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
         motionReadings.removeAll()
         knownIDs.removeAll()
         lastMotionID = 0
+        lastHeartRateID = 0
         currentBPM = nil
         currentMotion = nil
         deleteSavedFiles()
-        send(command: "clear")
+        if !AppCaptureMode.useDummyData {
+            send(command: "clear")
+        }
     }
 
     private func startMotionCapture() {
@@ -261,7 +265,7 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
                 }
                 guard self.isCapturing, let motion else { return }
                 let now = Date()
-                let reading = MotionReading(id: self.nextMotionID(for: now), motion: motion, date: now)
+                let reading = MotionReading(id: self.nextMotionID(), motion: motion, date: now)
                 self.currentMotion = reading
                 self.motionReadings.append(reading)
                 self.saveReadings()
@@ -271,6 +275,54 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
 
     private func stopMotionCapture() {
         motionManager.stopDeviceMotionUpdates()
+    }
+
+    private func startDummyCapture() {
+        guard dummyHeartRateTimer == nil && dummyMotionTimer == nil else { return }
+        motionError = nil
+        isReachable = true
+        recordDummyHeartRate()
+        recordDummyMotion()
+
+        dummyHeartRateTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.recordDummyHeartRate() }
+        }
+
+        dummyMotionTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.recordDummyMotion() }
+        }
+    }
+
+    private func stopDummyCapture() {
+        dummyHeartRateTimer?.invalidate()
+        dummyHeartRateTimer = nil
+        dummyMotionTimer?.invalidate()
+        dummyMotionTimer = nil
+    }
+
+    private func recordDummyHeartRate() {
+        guard isCapturing else { return }
+        let bpm = 76 + 8 * sin(dummyTick / 7) + Double.random(in: -2...2)
+        accept(HeartRateReading(id: nextHeartRateID(), bpm: bpm, date: Date()))
+    }
+
+    private func recordDummyMotion() {
+        guard isCapturing else { return }
+        dummyTick += 1
+        let timestamp = ReadingFormat.string(from: Date())
+        let reading = MotionReading(
+            id: nextMotionID(),
+            timestamp: timestamp,
+            accelerationX: 0.8 * sin(dummyTick / 5),
+            accelerationY: 0.6 * cos(dummyTick / 6),
+            accelerationZ: 9.80665 + 0.4 * sin(dummyTick / 8),
+            rotationX: 12 * sin(dummyTick / 4),
+            rotationY: 8 * cos(dummyTick / 5),
+            rotationZ: 18 * sin(dummyTick / 7)
+        )
+        currentMotion = reading
+        motionReadings.append(reading)
+        saveReadings()
     }
 
     private func send(command commandName: String) {
@@ -285,10 +337,17 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
     }
 
     private func accept(_ reading: HeartRateReading) {
-        guard knownIDs.insert(reading.id).inserted else { return }
-        readings.append(reading)
+        let acceptedReading: HeartRateReading
+        if reading.id <= 0 || knownIDs.contains(reading.id) {
+            acceptedReading = HeartRateReading(id: nextHeartRateID(), bpm: reading.bpm, timestamp: reading.timestamp)
+        } else {
+            acceptedReading = reading
+            lastHeartRateID = max(lastHeartRateID, reading.id)
+        }
+        guard knownIDs.insert(acceptedReading.id).inserted else { return }
+        readings.append(acceptedReading)
         readings.sort { $0.timestamp < $1.timestamp }
-        currentBPM = reading.bpm
+        currentBPM = acceptedReading.bpm
         saveReadings()
     }
 
@@ -324,9 +383,12 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
            let storedMotion = try? JSONDecoder().decode([MotionReading].self, from: motionData) {
             motionReadings = Self.convertLegacyMotionUnits(storedMotion)
         }
+        readings = Self.renumberHeartRate(readings)
+        motionReadings = Self.renumberMotion(motionReadings)
         knownIDs = Set(readings.map(\.id))
         currentBPM = readings.last?.bpm
         currentMotion = motionReadings.last
+        lastHeartRateID = readings.map(\.id).max() ?? 0
         lastMotionID = motionReadings.map(\.id).max() ?? 0
     }
 
@@ -349,9 +411,13 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
         urls.forEach { try? FileManager.default.removeItem(at: $0) }
     }
 
-    private func nextMotionID(for date: Date) -> Int64 {
-        let candidate = ReadingFormat.numericID(from: date)
-        lastMotionID = max(candidate, lastMotionID + 1)
+    private func nextHeartRateID() -> Int64 {
+        lastHeartRateID += 1
+        return lastHeartRateID
+    }
+
+    private func nextMotionID() -> Int64 {
+        lastMotionID += 1
         return lastMotionID
     }
 
@@ -454,6 +520,33 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
                 rotationZ: reading.rotationZ * degreesPerRadian
             )
         }
+    }
+
+    private static func renumberHeartRate(_ readings: [HeartRateReading]) -> [HeartRateReading] {
+        readings
+            .sorted { $0.timestamp < $1.timestamp }
+            .enumerated()
+            .map { index, reading in
+                HeartRateReading(id: Int64(index + 1), bpm: reading.bpm, timestamp: reading.timestamp)
+            }
+    }
+
+    private static func renumberMotion(_ readings: [MotionReading]) -> [MotionReading] {
+        readings
+            .sorted { $0.timestamp < $1.timestamp }
+            .enumerated()
+            .map { index, reading in
+                MotionReading(
+                    id: Int64(index + 1),
+                    timestamp: reading.timestamp,
+                    accelerationX: reading.accelerationX,
+                    accelerationY: reading.accelerationY,
+                    accelerationZ: reading.accelerationZ,
+                    rotationX: reading.rotationX,
+                    rotationY: reading.rotationY,
+                    rotationZ: reading.rotationZ
+                )
+            }
     }
 }
 
