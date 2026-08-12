@@ -331,7 +331,7 @@ final class WatchHeartRateManager: NSObject, ObservableObject {
 
     private static func loadHeartRateCSV(from url: URL) -> [WatchHeartRateReading]? {
         guard let csv = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-        return csv.csvRows.dropFirst().compactMap { row in
+        return csv.csvRows.dropFirst().compactMap { (row: [String]) -> WatchHeartRateReading? in
             guard row.count >= 3,
                   let id = Int64(row[0]),
                   let bpm = Double(row[1]) else { return nil }

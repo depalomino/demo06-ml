@@ -469,7 +469,7 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
 
     private static func loadHeartRateCSV(from url: URL) -> [HeartRateReading]? {
         guard let csv = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-        return csv.csvRows.dropFirst().compactMap { row in
+        return csv.csvRows.dropFirst().compactMap { (row: [String]) -> HeartRateReading? in
             guard row.count >= 3,
                   let id = Int64(row[0]),
                   let bpm = Double(row[1]) else { return nil }
@@ -482,7 +482,7 @@ final class PhoneHeartRateManager: NSObject, ObservableObject {
         let rows = csv.csvRows
         let header = rows.first ?? []
         let usesLegacyUnits = header.contains("accelerationX") || header.contains("rotationX")
-        let parsed = rows.dropFirst().compactMap { row in
+        let parsed: [MotionReading] = rows.dropFirst().compactMap { (row: [String]) -> MotionReading? in
             guard row.count >= 8,
                   let id = Int64(row[0]),
                   let accelerationX = Double(row[2]),
